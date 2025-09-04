@@ -507,18 +507,16 @@
 )
 
 (define-private (calculate-skill-level (reputation uint))
-  (cond 
-    ((< reputation u100) u1)
-    ((< reputation u500) u2)
-    ((< reputation u1000) u3)
-    ((< reputation u2000) u4)
-    ((< reputation u5000) u5)
-    ((< reputation u10000) u6)
-    ((< reputation u20000) u7)
-    ((< reputation u50000) u8)
-    ((< reputation u100000) u9)
-    (true u10)
-  )
+  (if (< reputation u100) u1
+    (if (< reputation u500) u2
+      (if (< reputation u1000) u3
+        (if (< reputation u2000) u4
+          (if (< reputation u5000) u5
+            (if (< reputation u10000) u6
+              (if (< reputation u20000) u7
+                (if (< reputation u50000) u8
+                  (if (< reputation u100000) u9
+                    u10)))))))))
 )
 
 (define-private (get-category-completion-count (user principal) (category (string-ascii 50)))
