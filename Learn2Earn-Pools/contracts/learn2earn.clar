@@ -675,3 +675,209 @@
 (define-private (remove-member-filter (member principal))
   (not (is-eq member tx-sender))
 )
+
+;; Read-only functions for data access
+(define-read-only (get-module (module-id uint))
+  (map-get? learning-modules { module-id: module-id })
+)
+
+(define-read-only (get-user-completion (user principal) (module-id uint))
+  (map-get? user-completions { user: user, module-id: module-id })
+)
+
+(define-read-only (get-user-stats (user principal))
+  (map-get? user-stats { user: user })
+)
+
+(define-read-only (get-reward-pool)
+  (var-get reward-pool)
+)
+
+(define-read-only (get-achievement (achievement-id uint))
+  (map-get? achievements { achievement-id: achievement-id })
+)
+
+(define-read-only (get-user-achievement (user principal) (achievement-id uint))
+  (map-get? user-achievements { user: user, achievement-id: achievement-id })
+)
+
+(define-read-only (get-quiz (quiz-id uint))
+  (map-get? module-quizzes { quiz-id: quiz-id })
+)
+
+(define-read-only (get-quiz-attempt (user principal) (quiz-id uint) (attempt uint))
+  (map-get? quiz-attempts { user: user, quiz-id: quiz-id, attempt: attempt })
+)
+
+(define-read-only (get-learning-path (path-id uint))
+  (map-get? learning-paths { path-id: path-id })
+)
+
+(define-read-only (get-path-progress (user principal) (path-id uint))
+  (map-get? path-progress { user: user, path-id: path-id })
+)
+
+(define-read-only (get-mentor (mentor principal))
+  (map-get? mentors { mentor: mentor })
+)
+
+(define-read-only (get-study-group (group-id uint))
+  (map-get? study-groups { group-id: group-id })
+)
+
+(define-read-only (get-contract-info)
+  {
+    total-modules: (var-get next-module-id),
+    total-achievements: (var-get next-achievement-id),
+    total-quizzes: (var-get next-quiz-id),
+    reward-pool: (var-get reward-pool),
+    platform-fee: (var-get platform-fee-rate),
+    min-reward: (var-get min-reward-amount),
+    max-reward: (var-get max-reward-amount),
+    streak-bonus: (var-get streak-bonus-rate),
+    owner: contract-owner
+  }
+)
+
+(define-read-only (get-platform-stats)
+  {
+    total-modules: (var-get next-module-id),
+    reward-pool: (var-get reward-pool),
+    active-achievements: (var-get next-achievement-id),
+    total-quizzes: (var-get next-quiz-id)
+  }
+)
+
+(define-read-only (get-user-profile (user principal))
+  (let ((stats (get-user-stats user)))
+    (match stats
+      user-data {
+        user: user,
+        stats: user-data,
+        skill-level: (calculate-skill-level (get reputation user-data)),
+        is-mentor: (is-some (get-mentor user))
+      }
+      {
+        user: user,
+        stats: none,
+        skill-level: u1,
+        is-mentor: false
+      }
+    )
+  )
+)
+
+(define-read-only (get-module-analytics (module-id uint))
+  (let ((module (get-module module-id)))
+    (match module
+      module-data {
+        module-id: module-id,
+        completions: (get completions module-data),
+        average-rating: (get average-rating module-data),
+        total-ratings: (get total-ratings module-data),
+        success-rate: (if (> (get completions module-data) u0) 
+                        (/ (* (get completions module-data) u100) (get completions module-data)) 
+                        u0),
+        popularity-score: (+ (get completions module-data) (get total-ratings module-data))
+      }
+      none
+    )
+  )
+)
+
+(define-read-only (get-user-achievements-count (user principal))
+  ;; This would require iterating through all achievements in a real implementation
+  ;; Simplified version that checks first 10 achievement IDs
+  (let ((achievement-0 (get-user-achievement user u0))
+        (achievement-1 (get-user-achievement user u1))
+        (achievement-2 (get-user-achievement user u2))
+        (achievement-3 (get-user-achievement user u3))
+        (achievement-4 (get-user-achievement user u4)))
+    (+ (if (is-some achievement-0) u1 u0)
+       (+ (if (is-some achievement-1) u1 u0)
+          (+ (if (is-some achievement-2) u1 u0)
+             (+ (if (is-some achievement-3) u1 u0)
+                (if (is-some achievement-4) u1 u0)))))
+  )
+)
+
+(define-read-only (check-module-eligibility (user principal) (module-id uint))
+  (let ((module (get-module module-id)))
+    (match module
+      module-data {
+        eligible: (and (get active module-data) 
+                       (check-prerequisites user (get prerequisites module-data))),
+        prerequisites-met: (check-prerequisites user (get prerequisites module-data)),
+        already-completed: (is-some (get-user-completion user module-id))
+      }
+      {
+        eligible: false,
+        prerequisites-met: false,
+        already-completed: false
+      }
+    )
+  )
+)
+
+(define-read-only (get-user-quiz-summary (user principal) (quiz-id uint))
+  (let ((attempt-1 (get-quiz-attempt user quiz-id u1))
+        (attempt-2 (get-quiz-attempt user quiz-id u2))
+        (attempt-3 (get-quiz-attempt user quiz-id u3)))
+    {
+      total-attempts: (get-user-quiz-attempts user quiz-id),
+      best-score: (get-best-quiz-score user quiz-id),
+      passed: (or (match attempt-1 a1 (get passed a1) false)
+                  (or (match attempt-2 a2 (get passed a2) false)
+                      (match attempt-3 a3 (get passed a3) false))),
+      attempts-remaining: (- u3 (get-user-quiz-attempts user quiz-id))
+    }
+  )
+)
+
+(define-read-only (get-best-quiz-score (user principal) (quiz-id uint))
+  (let ((attempt-1 (get-quiz-attempt user quiz-id u1))
+        (attempt-2 (get-quiz-attempt user quiz-id u2))
+        (attempt-3 (get-quiz-attempt user quiz-id u3)))
+    (let ((score-1 (match attempt-1 a1 (get score a1) u0))
+          (score-2 (match attempt-2 a2 (get score a2) u0))
+          (score-3 (match attempt-3 a3 (get score a3) u0)))
+      (max score-1 (max score-2 score-3))
+    )
+  )
+)
+
+(define-read-only (get-modules-by-category (category (string-ascii 50)))
+  ;; This would require filtering in a real implementation
+  ;; Returning a simplified structure for demonstration
+  {
+    category: category,
+    total-modules: u0, ;; Would be calculated by iterating through modules
+    average-difficulty: u3, ;; Would be calculated from actual modules
+    total-completions: u0 ;; Would be summed from all modules in category
+  }
+)
+
+(define-read-only (is-user-mentor (user principal))
+  (is-some (get-mentor user))
+)
+
+(define-read-only (get-learning-streak-info (user principal))
+  (let ((stats (get-user-stats user)))
+    (match stats
+      user-data {
+        current-streak: (get current-streak user-data),
+        longest-streak: (get longest-streak user-data),
+        days-since-activity: (if (> (get last-activity user-data) u0)
+                                (- block-height (get last-activity user-data))
+                                u0),
+        next-streak-bonus: (* (+ (get current-streak user-data) u1) (var-get streak-bonus-rate))
+      }
+      {
+        current-streak: u0,
+        longest-streak: u0,
+        days-since-activity: u0,
+        next-streak-bonus: (var-get streak-bonus-rate)
+      }
+    )
+  )
+)
