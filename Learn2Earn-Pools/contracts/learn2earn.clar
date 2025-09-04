@@ -210,7 +210,7 @@
         estimated-time: estimated-time,
         prerequisites: prerequisites,
         active: true,
-        created-at: block-height
+        created-at: stacks-block-height
       }
     )
     (var-set next-module-id (+ module-id u1))
@@ -244,7 +244,7 @@
       (map-set user-completions
         { user: user, module-id: module-id }
         { 
-          completed-at: block-height, 
+          completed-at: stacks-block-height, 
           reward-claimed: true,
           completion-time: completion-time,
           rating: rating,
@@ -274,7 +274,7 @@
           total-earned: (+ (get total-earned user-stats-data) total-reward),
           current-streak: streak-days,
           longest-streak: (update-longest-streak user streak-days),
-          last-activity: block-height,
+          last-activity: stacks-block-height,
           reputation: (+ (get reputation user-stats-data) (get difficulty module))
         })
       )
@@ -436,7 +436,7 @@
 (define-private (calculate-streak (user principal))
   (let ((user-data (map-get? user-stats { user: user })))
     (match user-data
-      stats (if (< (- block-height (get last-activity stats)) u144) ;; 1 day in blocks
+      stats (if (< (- stacks-block-height (get last-activity stats)) u144) ;; 1 day in blocks
                 (+ (get current-streak stats) u1)
                 u1)
       u1
@@ -464,7 +464,7 @@
         (begin
           (map-set user-achievements
             { user: user, achievement-id: u0 }
-            { unlocked-at: block-height, reward-claimed: false }
+            { unlocked-at: stacks-block-height, reward-claimed: false }
           )
           (ok true)
         )
@@ -872,7 +872,7 @@
         current-streak: (get current-streak user-data),
         longest-streak: (get longest-streak user-data),
         days-since-activity: (if (> (get last-activity user-data) u0)
-                                (- block-height (get last-activity user-data))
+                                (- stacks-block-height (get last-activity user-data))
                                 u0),
         next-streak-bonus: (* (+ (get current-streak user-data) u1) (var-get streak-bonus-rate))
       }
