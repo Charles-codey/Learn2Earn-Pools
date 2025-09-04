@@ -164,3 +164,130 @@
     created-at: uint
   }
 )
+
+;; Enhanced pool funding with multi-token support
+(define-public (fund-pool (amount uint))
+  (begin
+    (asserts! (> amount u0) err-invalid-parameters)
+    (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
+    (var-set reward-pool (+ (var-get reward-pool) amount))
+    (ok true)
+  )
+)
+
+;; Create learning module with enhanced features
+(define-public (create-module 
+  (title (string-ascii 100)) 
+  (description (string-ascii 500))
+  (category (string-ascii 50))
+  (difficulty uint)
+  (reward-amount uint)
+  (estimated-time uint)
+  (prerequisites (list 10 uint)))
+  (let ((module-id (var-get next-module-id)))
+    (asserts! (>= (var-get reward-pool) reward-amount) err-insufficient-balance)
+    (asserts! (>= reward-amount (var-get min-reward-amount)) err-invalid-parameters)
+    (asserts! (<= reward-amount (var-get max-reward-amount)) err-invalid-parameters)
+    (asserts! (and (>= difficulty u1) (<= difficulty u5)) err-invalid-parameters)
+    
+    (map-set learning-modules
+      { module-id: module-id }
+      {
+        creator: tx-sender,
+        title: title,
+        description: description,
+        category: category,
+        difficulty: difficulty,
+        reward-amount: reward-amount,
+        completions: u0,
+        average-rating: u0,
+        total-ratings: u0,
+        estimated-time: estimated-time,
+        prerequisites: prerequisites,
+        active: true,
+        created-at: block-height
+      }
+    )
+    (var-set next-module-id (+ module-id u1))
+    (ok module-id)
+  )
+)
+
+;; Complete module with enhanced validation and rewards
+(define-public (complete-module (module-id uint) (completion-time uint) (rating uint))
+  (let (
+    (module (unwrap! (map-get? learning-modules { module-id: module-id }) err-not-found))
+    (user tx-sender)
+    (user-stats-data (default-to 
+      { total-completed: u0, total-earned: u0, current-streak: u0, longest-streak: u0, 
+        last-activity: u0, favorite-category: "", skill-level: u1, reputation: u0 }
+      (map-get? user-stats { user: user })))
+  )
+    (asserts! (is-none (map-get? user-completions { user: user, module-id: module-id })) err-already-completed)
+    (asserts! (get active module) err-not-found)
+    (asserts! (and (>= rating u1) (<= rating u5)) err-invalid-parameters)
+    
+    ;; Check prerequisites
+    (asserts! (check-prerequisites user (get prerequisites module)) err-not-authorized)
+    
+    ;; Calculate streak bonus
+    (let ((streak-days (calculate-streak user))
+          (bonus-amount (* (get reward-amount module) (var-get streak-bonus-rate) streak-days))
+          (total-reward (+ (get reward-amount module) bonus-amount)))
+      
+      ;; Record completion
+      (map-set user-completions
+        { user: user, module-id: module-id }
+        { 
+          completed-at: block-height, 
+          reward-claimed: true,
+          completion-time: completion-time,
+          rating: rating,
+          attempts: u1
+        }
+      )
+      
+      ;; Update module stats
+      (map-set learning-modules
+        { module-id: module-id }
+        (merge module { 
+          completions: (+ (get completions module) u1),
+          average-rating: (calculate-new-average (get average-rating module) (get total-ratings module) rating),
+          total-ratings: (+ (get total-ratings module) u1)
+        })
+      )
+      
+      ;; Transfer rewards
+      (try! (as-contract (stx-transfer? total-reward tx-sender user)))
+      (var-set reward-pool (- (var-get reward-pool) total-reward))
+      
+      ;; Update user stats
+      (map-set user-stats
+        { user: user }
+        (merge user-stats-data {
+          total-completed: (+ (get total-completed user-stats-data) u1),
+          total-earned: (+ (get total-earned user-stats-data) total-reward),
+          current-streak: streak-days,
+          last-activity: block-height,
+          reputation: (+ (get reputation user-stats-data) (get difficulty module))
+        })
+      )
+      
+      ;; Check for achievements
+      (try! (check-and-unlock-achievements user))
+      (ok total-reward)
+    )
+  )
+)
+
+;; Deactivate module (enhanced with creator check)
+(define-public (deactivate-module (module-id uint))
+  (let ((module (unwrap! (map-get? learning-modules { module-id: module-id }) err-not-found)))
+    (asserts! (or (is-eq tx-sender (get creator module)) (is-eq tx-sender contract-owner)) err-owner-only)
+    (map-set learning-modules
+      { module-id: module-id }
+      (merge module { active: false })
+    )
+    (ok true)
+  )
+)
