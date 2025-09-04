@@ -279,8 +279,8 @@
         })
       )
       
-      ;; Check for achievements
-      (try! (check-and-unlock-achievements user))
+      ;; Check for achievements (fixed to return proper response)
+      (unwrap! (check-and-unlock-achievements user) err-not-found)
       (ok total-reward)
     )
   )
@@ -364,7 +364,7 @@
         { user: tx-sender, quiz-id: quiz-id, attempt: (+ attempt-count u1) }
         {
           score: score,
-          completed-at: block-height,
+          completed-at: stacks-block-height,
           time-taken: time-taken,
           passed: passed
         }
@@ -382,7 +382,7 @@
     
     (map-set user-achievements
       { user: user, achievement-id: achievement-id }
-      { unlocked-at: block-height, reward-claimed: false }
+      { unlocked-at: stacks-block-height, reward-claimed: false }
     )
     
     ;; Transfer achievement reward
@@ -391,7 +391,7 @@
     
     (map-set user-achievements
       { user: user, achievement-id: achievement-id }
-      { unlocked-at: block-height, reward-claimed: true }
+      { unlocked-at: stacks-block-height, reward-claimed: true }
     )
     
     (ok true)
@@ -451,8 +451,8 @@
   )
 )
 
+;; Fixed function to return proper response type
 (define-private (check-and-unlock-achievements (user principal))
-  ;; Check completion-based achievements
   (let ((user-data (default-to 
         { total-completed: u0, total-earned: u0, current-streak: u0, longest-streak: u0, 
           last-activity: u0, favorite-category: "", skill-level: u1, reputation: u0 }
@@ -640,7 +640,7 @@
         members: (list tx-sender),
         max-members: max-members,
         private: private,
-        created-at: block-height
+        created-at: stacks-block-height
       }
     )
     (var-set next-quiz-id (+ group-id u1))
@@ -757,7 +757,7 @@
     (match stats
       user-data {
         user: user,
-        stats: user-data,
+        stats: (some user-data),
         skill-level: (calculate-skill-level (get reputation user-data)),
         is-mentor: (is-some (get-mentor user))
       }
@@ -774,7 +774,7 @@
 (define-read-only (get-module-analytics (module-id uint))
   (let ((module (get-module module-id)))
     (match module
-      module-data {
+      module-data (some {
         module-id: module-id,
         completions: (get completions module-data),
         average-rating: (get average-rating module-data),
@@ -783,7 +783,7 @@
                         (/ (* (get completions module-data) u100) (get completions module-data)) 
                         u0),
         popularity-score: (+ (get completions module-data) (get total-ratings module-data))
-      }
+      })
       none
     )
   )
