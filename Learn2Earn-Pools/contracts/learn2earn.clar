@@ -1,4 +1,4 @@
- ;; Learn2Earn Pools - Enhanced Study-to-earn rewards system
+;; Learn2Earn Pools - Enhanced Study-to-earn rewards system
 (define-constant contract-owner tx-sender)
 (define-constant err-owner-only (err u100))
 (define-constant err-not-found (err u101))
@@ -165,6 +165,11 @@
   }
 )
 
+;; Utility function to get maximum of two values
+(define-private (max-uint (a uint) (b uint))
+  (if (> a b) a b)
+)
+
 ;; Enhanced pool funding with multi-token support
 (define-public (fund-pool (amount uint))
   (begin
@@ -232,7 +237,7 @@
     
     ;; Calculate streak bonus
     (let ((streak-days (calculate-streak user))
-          (bonus-amount (* (get reward-amount module) (var-get streak-bonus-rate) streak-days))
+          (bonus-amount (/ (* (get reward-amount module) (var-get streak-bonus-rate) streak-days) u10000))
           (total-reward (+ (get reward-amount module) bonus-amount)))
       
       ;; Record completion
@@ -268,6 +273,7 @@
           total-completed: (+ (get total-completed user-stats-data) u1),
           total-earned: (+ (get total-earned user-stats-data) total-reward),
           current-streak: streak-days,
+          longest-streak: (update-longest-streak user streak-days),
           last-activity: block-height,
           reputation: (+ (get reputation user-stats-data) (get difficulty module))
         })
@@ -490,7 +496,7 @@
 (define-private (update-longest-streak (user principal) (current-streak uint))
   (let ((user-data (map-get? user-stats { user: user })))
     (match user-data
-      stats (max current-streak (get longest-streak stats))
+      stats (max-uint current-streak (get longest-streak stats))
       current-streak
     )
   )
@@ -841,7 +847,7 @@
     (let ((score-1 (match attempt-1 a1 (get score a1) u0))
           (score-2 (match attempt-2 a2 (get score a2) u0))
           (score-3 (match attempt-3 a3 (get score a3) u0)))
-      (max score-1 (max score-2 score-3))
+      (max-uint score-1 (max-uint score-2 score-3))
     )
   )
 )
