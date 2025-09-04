@@ -416,4 +416,121 @@
       (ok true)
     )
   )
-) 
+)
+
+;; Helper functions
+(define-private (check-prerequisites (user principal) (prerequisites (list 10 uint)))
+  (fold check-single-prerequisite prerequisites true)
+)
+
+(define-private (check-single-prerequisite (module-id uint) (acc bool))
+  (and acc (is-some (map-get? user-completions { user: tx-sender, module-id: module-id })))
+)
+
+(define-private (calculate-streak (user principal))
+  (let ((user-data (map-get? user-stats { user: user })))
+    (match user-data
+      stats (if (< (- block-height (get last-activity stats)) u144) ;; 1 day in blocks
+                (+ (get current-streak stats) u1)
+                u1)
+      u1
+    )
+  )
+)
+
+(define-private (calculate-new-average (current-avg uint) (total-ratings uint) (new-rating uint))
+  (if (is-eq total-ratings u0)
+      new-rating
+      (/ (+ (* current-avg total-ratings) new-rating) (+ total-ratings u1))
+  )
+)
+
+(define-private (check-and-unlock-achievements (user principal))
+  ;; Check completion-based achievements
+  (let ((user-data (default-to 
+        { total-completed: u0, total-earned: u0, current-streak: u0, longest-streak: u0, 
+          last-activity: u0, favorite-category: "", skill-level: u1, reputation: u0 }
+        (map-get? user-stats { user: user }))))
+    
+    ;; Check for "First Module" achievement (achievement-id u0)
+    (if (and (is-eq (get total-completed user-data) u1)
+             (is-none (map-get? user-achievements { user: user, achievement-id: u0 })))
+        (begin
+          (map-set user-achievements
+            { user: user, achievement-id: u0 }
+            { unlocked-at: block-height, reward-claimed: false }
+          )
+          (ok true)
+        )
+        (ok true)
+    )
+  )
+)
+
+(define-private (get-user-quiz-attempts (user principal) (quiz-id uint))
+  ;; Count existing attempts for user and quiz
+  (let ((attempt-1 (map-get? quiz-attempts { user: user, quiz-id: quiz-id, attempt: u1 }))
+        (attempt-2 (map-get? quiz-attempts { user: user, quiz-id: quiz-id, attempt: u2 }))
+        (attempt-3 (map-get? quiz-attempts { user: user, quiz-id: quiz-id, attempt: u3 })))
+    (+ (if (is-some attempt-1) u1 u0)
+       (+ (if (is-some attempt-2) u1 u0) 
+          (if (is-some attempt-3) u1 u0)))
+  )
+)
+
+(define-private (calculate-user-reputation (user principal) (difficulty uint))
+  (let ((current-stats (default-to 
+        { total-completed: u0, total-earned: u0, current-streak: u0, longest-streak: u0, 
+          last-activity: u0, favorite-category: "", skill-level: u1, reputation: u0 }
+        (map-get? user-stats { user: user }))))
+    (+ (get reputation current-stats) (* difficulty u10))
+  )
+)
+
+(define-private (update-longest-streak (user principal) (current-streak uint))
+  (let ((user-data (map-get? user-stats { user: user })))
+    (match user-data
+      stats (max current-streak (get longest-streak stats))
+      current-streak
+    )
+  )
+)
+
+(define-private (is-module-prerequisite-met (user principal) (module-id uint))
+  (is-some (map-get? user-completions { user: user, module-id: module-id }))
+)
+
+(define-private (calculate-skill-level (reputation uint))
+  (cond 
+    ((< reputation u100) u1)
+    ((< reputation u500) u2)
+    ((< reputation u1000) u3)
+    ((< reputation u2000) u4)
+    ((< reputation u5000) u5)
+    ((< reputation u10000) u6)
+    ((< reputation u20000) u7)
+    ((< reputation u50000) u8)
+    ((< reputation u100000) u9)
+    (true u10)
+  )
+)
+
+(define-private (get-category-completion-count (user principal) (category (string-ascii 50)))
+  ;; This would require iterating through user completions
+  ;; Simplified implementation for now
+  u0
+)
+
+(define-private (validate-module-parameters 
+  (title (string-ascii 100))
+  (reward-amount uint)
+  (difficulty uint)
+  (estimated-time uint))
+  (and 
+    (> (len title) u0)
+    (and (>= difficulty u1) (<= difficulty u5))
+    (and (>= reward-amount (var-get min-reward-amount)) 
+         (<= reward-amount (var-get max-reward-amount)))
+    (> estimated-time u0)
+  )
+)
