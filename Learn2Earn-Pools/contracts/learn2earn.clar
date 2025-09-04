@@ -534,3 +534,144 @@
     (> estimated-time u0)
   )
 )
+
+;; Administrative functions
+(define-public (set-platform-fee (new-fee uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (<= new-fee u1000) err-invalid-parameters) ;; Max 10%
+    (var-set platform-fee-rate new-fee)
+    (ok true)
+  )
+)
+
+(define-public (set-reward-limits (min-reward uint) (max-reward uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (< min-reward max-reward) err-invalid-parameters)
+    (var-set min-reward-amount min-reward)
+    (var-set max-reward-amount max-reward)
+    (ok true)
+  )
+)
+
+(define-public (set-streak-bonus-rate (bonus-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (<= bonus-rate u500) err-invalid-parameters) ;; Max 5% bonus per day
+    (var-set streak-bonus-rate bonus-rate)
+    (ok true)
+  )
+)
+
+(define-public (emergency-withdraw (amount uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (<= amount (var-get reward-pool)) err-insufficient-balance)
+    (try! (as-contract (stx-transfer? amount tx-sender contract-owner)))
+    (var-set reward-pool (- (var-get reward-pool) amount))
+    (ok true)
+  )
+)
+
+(define-public (register-mentor 
+  (expertise (string-ascii 100))
+  (hourly-rate uint))
+  (begin
+    (asserts! (> (len expertise) u0) err-invalid-parameters)
+    (asserts! (> hourly-rate u0) err-invalid-parameters)
+    (map-set mentors
+      { mentor: tx-sender }
+      {
+        expertise: expertise,
+        rating: u5, ;; Default 5/10 rating
+        total-students: u0,
+        hourly-rate: hourly-rate,
+        active: true
+      }
+    )
+    (ok true)
+  )
+)
+
+(define-public (update-mentor-rating (mentor principal) (new-rating uint))
+  (let ((mentor-data (unwrap! (map-get? mentors { mentor: mentor }) err-not-found)))
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (and (>= new-rating u1) (<= new-rating u10)) err-invalid-parameters)
+    (map-set mentors
+      { mentor: mentor }
+      (merge mentor-data { rating: new-rating })
+    )
+    (ok true)
+  )
+)
+
+(define-public (deactivate-mentor (mentor principal))
+  (let ((mentor-data (unwrap! (map-get? mentors { mentor: mentor }) err-not-found)))
+    (asserts! (or (is-eq tx-sender mentor) (is-eq tx-sender contract-owner)) err-owner-only)
+    (map-set mentors
+      { mentor: mentor }
+      (merge mentor-data { active: false })
+    )
+    (ok true)
+  )
+)
+
+(define-public (create-study-group 
+  (name (string-ascii 100))
+  (description (string-ascii 300))
+  (category (string-ascii 50))
+  (max-members uint)
+  (private bool))
+  (let ((group-id (var-get next-quiz-id))) ;; Reusing counter for simplicity
+    (asserts! (> (len name) u0) err-invalid-parameters)
+    (asserts! (and (> max-members u1) (<= max-members u50)) err-invalid-parameters)
+    (map-set study-groups
+      { group-id: group-id }
+      {
+        creator: tx-sender,
+        name: name,
+        description: description,
+        category: category,
+        members: (list tx-sender),
+        max-members: max-members,
+        private: private,
+        created-at: block-height
+      }
+    )
+    (var-set next-quiz-id (+ group-id u1))
+    (ok group-id)
+  )
+)
+
+(define-public (join-study-group (group-id uint))
+  (let ((group (unwrap! (map-get? study-groups { group-id: group-id }) err-not-found)))
+    (asserts! (< (len (get members group)) (get max-members group)) err-invalid-parameters)
+    (asserts! (is-none (index-of (get members group) tx-sender)) err-already-completed) ;; Already member
+    (map-set study-groups
+      { group-id: group-id }
+      (merge group { 
+        members: (unwrap! (as-max-len? (append (get members group) tx-sender) u50) err-invalid-parameters)
+      })
+    )
+    (ok true)
+  )
+)
+
+(define-public (leave-study-group (group-id uint))
+  (let ((group (unwrap! (map-get? study-groups { group-id: group-id }) err-not-found)))
+    (asserts! (is-some (index-of (get members group) tx-sender)) err-not-found) ;; Not a member
+    (asserts! (not (is-eq tx-sender (get creator group))) err-owner-only) ;; Creator cannot leave
+    (map-set study-groups
+      { group-id: group-id }
+      (merge group { 
+        members: (filter remove-member-filter (get members group))
+      })
+    )
+    (ok true)
+  )
+)
+
+(define-private (remove-member-filter (member principal))
+  (not (is-eq member tx-sender))
+)
