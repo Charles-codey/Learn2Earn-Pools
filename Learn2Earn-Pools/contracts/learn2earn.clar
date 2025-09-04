@@ -291,3 +291,129 @@
     (ok true)
   )
 )
+
+;; Create achievement
+(define-public (create-achievement 
+  (title (string-ascii 100))
+  (description (string-ascii 300))
+  (reward-amount uint)
+  (requirement-type (string-ascii 50))
+  (requirement-value uint)
+  (icon (string-ascii 100)))
+  (let ((achievement-id (var-get next-achievement-id)))
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (map-set achievements
+      { achievement-id: achievement-id }
+      {
+        title: title,
+        description: description,
+        reward-amount: reward-amount,
+        requirement-type: requirement-type,
+        requirement-value: requirement-value,
+        icon: icon,
+        active: true
+      }
+    )
+    (var-set next-achievement-id (+ achievement-id u1))
+    (ok achievement-id)
+  )
+)
+
+;; Create quiz for module
+(define-public (create-quiz (module-id uint) (question-count uint) (passing-score uint) (time-limit uint))
+  (let ((quiz-id (var-get next-quiz-id)))
+    (let ((module (unwrap! (map-get? learning-modules { module-id: module-id }) err-not-found)))
+      (asserts! (is-eq tx-sender (get creator module)) err-owner-only)
+      (asserts! (and (> question-count u0) (<= question-count u50)) err-invalid-parameters)
+      (asserts! (and (>= passing-score u50) (<= passing-score u100)) err-invalid-parameters)
+      
+      (map-set module-quizzes
+        { quiz-id: quiz-id }
+        {
+          module-id: module-id,
+          question-count: question-count,
+          passing-score: passing-score,
+          time-limit: time-limit,
+          active: true
+        }
+      )
+      (var-set next-quiz-id (+ quiz-id u1))
+      (ok quiz-id)
+    )
+  )
+)
+
+;; Submit quiz attempt
+(define-public (submit-quiz (quiz-id uint) (score uint) (time-taken uint))
+  (let (
+    (quiz (unwrap! (map-get? module-quizzes { quiz-id: quiz-id }) err-not-found))
+    (attempt-count (get-user-quiz-attempts tx-sender quiz-id))
+  )
+    (asserts! (get active quiz) err-not-found)
+    (asserts! (< attempt-count u3) err-max-attempts-reached) ;; Max 3 attempts
+    (asserts! (and (>= score u0) (<= score u100)) err-invalid-parameters)
+    
+    (let ((passed (>= score (get passing-score quiz))))
+      (map-set quiz-attempts
+        { user: tx-sender, quiz-id: quiz-id, attempt: (+ attempt-count u1) }
+        {
+          score: score,
+          completed-at: block-height,
+          time-taken: time-taken,
+          passed: passed
+        }
+      )
+      (ok passed)
+    )
+  )
+)
+
+;; Unlock achievement for user
+(define-public (unlock-achievement (user principal) (achievement-id uint))
+  (let ((achievement (unwrap! (map-get? achievements { achievement-id: achievement-id }) err-not-found)))
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (is-none (map-get? user-achievements { user: user, achievement-id: achievement-id })) err-achievement-exists)
+    
+    (map-set user-achievements
+      { user: user, achievement-id: achievement-id }
+      { unlocked-at: block-height, reward-claimed: false }
+    )
+    
+    ;; Transfer achievement reward
+    (try! (as-contract (stx-transfer? (get reward-amount achievement) tx-sender user)))
+    (var-set reward-pool (- (var-get reward-pool) (get reward-amount achievement)))
+    
+    (map-set user-achievements
+      { user: user, achievement-id: achievement-id }
+      { unlocked-at: block-height, reward-claimed: true }
+    )
+    
+    (ok true)
+  )
+)
+
+;; Deactivate achievement
+(define-public (deactivate-achievement (achievement-id uint))
+  (let ((achievement (unwrap! (map-get? achievements { achievement-id: achievement-id }) err-not-found)))
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (map-set achievements
+      { achievement-id: achievement-id }
+      (merge achievement { active: false })
+    )
+    (ok true)
+  )
+)
+
+;; Deactivate quiz
+(define-public (deactivate-quiz (quiz-id uint))
+  (let ((quiz (unwrap! (map-get? module-quizzes { quiz-id: quiz-id }) err-not-found)))
+    (let ((module (unwrap! (map-get? learning-modules { module-id: (get module-id quiz) }) err-not-found)))
+      (asserts! (or (is-eq tx-sender (get creator module)) (is-eq tx-sender contract-owner)) err-owner-only)
+      (map-set module-quizzes
+        { quiz-id: quiz-id }
+        (merge quiz { active: false })
+      )
+      (ok true)
+    )
+  )
+) 
